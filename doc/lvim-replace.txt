@@ -1,0 +1,238 @@
+*lvim-replace.txt*          Project-wide find & replace, powered by ripgrep
+
+==============================================================================
+CONTENTS                                                    *lvim-replace*
+
+  1. Introduction ........................... |lvim-replace-intro|
+  2. Requirements ........................... |lvim-replace-requirements|
+  3. Setup .................................. |lvim-replace-setup|
+  4. Commands ............................... |lvim-replace-commands|
+  5. Panel keys ............................. |lvim-replace-keys|
+  6. Selective apply ........................ |lvim-replace-marking|
+  7. Search & replace engine ................ |lvim-replace-engine|
+  8. History & named searches ............... |lvim-replace-history|
+  9. API .................................... |lvim-replace-api|
+  10. Health ................................ |lvim-replace-health|
+  11. Highlights ............................ |lvim-replace-highlights|
+
+==============================================================================
+1. INTRODUCTION                                       *lvim-replace-intro*
+
+lvim-replace is a project-wide find & replace panel built on the lvim-tech
+ecosystem (the lvim-ui surface chassis, the lvim-utils palette / icons /
+SQLite store). ripgrep is the single engine for BOTH search and replace, so a
+regex written once behaves identically in the results and in the applied
+change.
+
+It opens as a docked vertical SPLIT (never a float), a stack of THREE navigable
+sectors — Inputs (Search, Replace, Files, Flags), Toggles (Case, Whole word,
+Regex, Hidden as one centered row of buttons) and Results (a Mark bar + the
+matches, grouped by file). <C-j> / <C-k> step between the sectors and the
+footer; <C-h> / <C-l> jump out to the editor beside the panel and back to the
+sector you left. The Inputs sector is a real editable buffer — type straight
+into the four field lines; every other sector hides the cursor and paints the
+active row instead.
+
+Once you engage the Replace field (even leaving it empty — an empty Replace is a
+valid delete), each match renders as a two-row DIFF: the original on a faint red
+wash (matched span struck through) and the replacement below it on a faint green
+wash with a "+" gutter — so the change is previewed exactly as apply will write
+it.
+
+The distinguishing feature is SELECTIVE APPLY: every result is markable and a
+replace writes ONLY the marked matches (see |lvim-replace-marking|).
+
+==============================================================================
+2. REQUIREMENTS                                *lvim-replace-requirements*
+
+  - Neovim >= 0.10
+  - ripgrep (rg) >= 14 recommended
+  - lvim-utils and lvim-ui
+  - sqlite.lua (optional) — only for history / named searches; search and
+    replace work without it.
+
+==============================================================================
+3. SETUP                                              *lvim-replace-setup*
+
+setup() merges your options into the LIVE config. Every option at its default:
+>lua
+  require("lvim-replace").setup({
+      width = 0.5,              -- split width: fraction (<= 1) or columns (> 1)
+      sectors = {               -- per-sector border + separator (a rule under it)
+          inputs = { border = "none", separator = true },
+          toggles = { border = "none", separator = true },
+          results = { border = "none" },
+      },
+      min_chars = 2,            -- min Search chars before ripgrep runs
+      debounce = 200,           -- ms a field change is debounced
+      max_results = 2000,       -- cap on matching lines (rg stopped past it)
+      max_columns = 512,        -- rg --max-columns (0 = no per-line cap)
+      flags = {
+          case = "smart",       -- "smart" | "ignore" | "sensitive"
+          whole_word = false,   -- rg --word-regexp
+          regex = false,        -- false = literal (--fixed-strings)
+          multiline = false,    -- rg --multiline --multiline-dotall
+          hidden = false,       -- rg --hidden
+          no_ignore = false,    -- rg --no-ignore
+      },
+      exclude = { ".git" },     -- globs always excluded (rg -g '!<glob>')
+      confirm_apply = 1,        -- apply of >= N matches confirms first
+      marker = "➤",             -- the mark glyph in the front column
+      persist = true,           -- persist history + named searches (SQLite)
+      save = nil,               -- store dir (nil = stdpath("data")/lvim-replace)
+      max_history = 50,         -- how many recent searches to keep
+      keys = { ... },           -- panel keymaps (see |lvim-replace-keys|)
+      hl = {},                  -- highlight-group name overrides
+  })
+<
+`width` is the docked split's width (a fraction of the screen when <= 1, an
+absolute column count when > 1). Each sector's `border` is any lvim-ui border
+spec ("none" | "rounded" | "single" | a custom 8-element table); the Inputs and
+Toggles sectors also take `separator` — a divider rule drawn UNDER them.
+
+==============================================================================
+4. COMMANDS                                        *lvim-replace-commands*
+
+                                                          *:LvimReplace*
+:LvimReplace [subcommand]
+
+  open        Open the panel (default).
+  toggle      Toggle the panel.
+  close       Close the panel.
+  file        Open limited to the current file.
+  word        Open with the word under the cursor pre-filled.
+  selection   Open with the visual selection pre-filled.
+
+There is no layout argument — the panel is always the same three-sector split.
+
+==============================================================================
+5. PANEL KEYS                                         *lvim-replace-keys*
+
+The FOOTER actions (r, u, <C-q>, g?, q) and m / n fire from EVERY sector — the
+plain keys shown on the buttons, plus their <localleader> aliases. The
+sector-specific keys act in their own sector. Only `q` closes the panel; <Esc>
+just leaves insert in the Inputs.
+
+  <C-j> / <C-k>         Next / previous sector (and the footer)
+  <C-h> / <C-l>         Jump out to the editor beside the panel, and back
+  <CR> / <Tab>          Inputs: next field (<S-Tab> previous)
+  h / l                 Toggles: pick a flag (<CR> / <Space> flips it)
+  <CR>                  Results: jump to the match under the cursor
+  <Tab>                 Results: mark / unmark the match, then advance
+  m / n                 Mark all / unmark all
+  r                     Replace the marked matches
+  u                     Undo the last applied batch
+  <C-q>                 Send the results (marked, or all) to quickfix
+  g?                    Keymap cheatsheet
+  q                     Close the panel
+
+The toggles, history and save-search actions also keep their <localleader> keys.
+All keys are configurable via `config.keys`.
+
+==============================================================================
+6. SELECTIVE APPLY                                  *lvim-replace-marking*
+
+Every result is markable: <Tab> toggles the mark of the result under the cursor
+and advances; marking a FILE header marks (or unmarks) all of that file's
+matches. `m` / `n` mark all / unmark all, and the Mark bar (the first row of the
+Results sector) shows a live `marked / total` counter, flush to the right edge.
+
+Apply (`r`) writes ONLY the marked matches — marking is REQUIRED. With nothing
+marked it warns instead of touching anything (to change everything, mark all
+first). A confirmation dialog states the exact count before anything is written
+to disk. A result line that has changed since the search is skipped, never
+corrupted.
+
+Marks are keyed by a stable result id and re-applied on every render, so the
+marker column survives re-renders and is never wiped by a full-row selection
+tint.
+
+==============================================================================
+7. SEARCH & REPLACE ENGINE                           *lvim-replace-engine*
+
+ripgrep runs two passes:
+
+  1. `rg --json` — the authoritative matches: file, line, line text and every
+     submatch's byte span. Drives the results, the match highlight, marking and
+     navigation. Streamed off the main thread and parsed incrementally, so a
+     broad search never blocks typing; a result cap stops ripgrep at the
+     ceiling.
+  2. `rg --only-matching --column --replace=<replace>` (once the Replace field
+     is engaged — even with an empty value, which deletes the match) — ripgrep's
+     own replacement text per match (capture groups expanded), zipped onto pass
+     1's spans by (file, line, column). `rg --json` ignores `--replace`, which
+     is why the replacement needs its own pass. This drives the diff preview.
+
+Applying splices each marked line's spans with their replacement text
+(right-to-left so earlier spans keep their offsets) and writes only the touched
+files. A file open in a buffer is edited through the buffer (set lines + write)
+so its own undo history stays intact.
+
+==============================================================================
+8. HISTORY & NAMED SEARCHES                         *lvim-replace-history*
+
+When `persist` is on and sqlite.lua is installed, a successful apply appends
+the search to history (pruned to `max_history`), and `S` saves the current
+search under a name. `H` opens history + named searches in the picker; choosing
+one loads it back into the fields. The database is the plugin's OWN file under
+`stdpath("data")/lvim-replace` (override with `save`) — never a central DB and
+never written inside your repositories.
+
+==============================================================================
+9. API                                                  *lvim-replace-api*
+
+  require("lvim-replace").setup(opts)
+  require("lvim-replace").open(opts)              -- open the panel
+  require("lvim-replace").toggle(opts)            -- toggle the panel
+  require("lvim-replace").close()                 -- close the panel
+  require("lvim-replace").open_current_file(opts) -- scope: current file
+  require("lvim-replace").open_cword(opts)        -- prefill: word under cursor
+  require("lvim-replace").open_visual(opts)       -- prefill: visual selection
+
+`opts` accepts: `prefills` (a table of `search` / `replace` / `paths` /
+`flags_extra`), `scope_paths` (a list of positional paths to search) and
+`flags` (flag-state overrides).
+
+==============================================================================
+10. HEALTH                                           *lvim-replace-health*
+
+`:checkhealth lvim-replace` reports ripgrep (presence + version), the lvim-ui /
+lvim-utils dependencies, the icon provider, the persistence backend (sqlite.lua
+vs disabled) and config sanity.
+
+==============================================================================
+11. HIGHLIGHTS                                   *lvim-replace-highlights*
+
+All groups self-theme from the active palette (via lvim-utils.highlight.bind)
+and are overridable. Override a group NAME per key in `config.hl`, or redefine
+the group directly:
+
+  LvimReplaceFileRow        File header row background
+  LvimReplaceFilePath       File header path
+  LvimReplaceFileCount      File header match count
+  LvimReplaceRowOdd/Even    Match row stripes
+  LvimReplaceActiveRow      The focused sector's active row / button bar
+  LvimReplaceLineNr         Result line number
+  LvimReplaceColNr          Result column number
+  LvimReplaceMatch          Matched span (no replacement)
+  LvimReplaceMatchDel       Matched span being replaced (struck)
+  LvimReplaceReplace        Replacement span (after)
+  LvimReplaceDiffDel/Add    Diff before/after row wash (red/green)
+  LvimReplaceDiffDelSign/AddSign  Diff gutter signs
+  LvimReplaceMarker         The mark glyph
+  LvimReplaceIcon           File devicon default
+  LvimReplaceField{Search,Replace,Files,Flags}       Field rows (per-accent)
+  LvimReplaceField{...}Badge / LvimReplaceField{...}Sel  Field label / active
+  LvimReplaceToggleRow      Toggles row background
+  LvimReplaceToggleLabel    Toggle label
+  LvimReplaceToggleOn/Off   Toggle state (on green / off dim)
+  LvimReplaceToggleValue    The case value
+  LvimReplaceActionRow      Mark bar background (yellow tint)
+  LvimReplaceAction         Mark bar labels (yellow)
+  LvimReplaceActionKey      Mark bar bracketed hotkey ([m]/[n], blue)
+  LvimReplaceCount          The marked/total counter badge (green)
+  LvimReplaceNormal         The panel window background
+  LvimReplaceEmpty          Empty / status message
+  LvimReplaceError          ripgrep error line
+
+vim:tw=78:ts=8:ft=help:norl:
