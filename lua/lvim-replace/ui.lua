@@ -22,9 +22,11 @@
 -- matches (or all when none are marked, after a confirm that states the count). Marks are keyed by a stable
 -- result id and re-applied on every render, so the marker column survives re-render.
 --
--- With a Replace value each match renders as a two-row DIFF: the ORIGINAL on a faint red wash (matched span
--- red + struck through) and the REPLACEMENT below it on a faint green wash with a `+` gutter (ripgrep's own
--- replacement, capture groups expanded, in green). Without a Replace value the matched spans are orange.
+-- The preview is always live (from the first Search character). A Replace VALUE renders each match as a
+-- two-row DIFF: the ORIGINAL on a faint red wash (matched span red + struck through) and the REPLACEMENT
+-- below it on a faint green wash with a `+` gutter (ripgrep's own replacement, capture groups expanded, in
+-- green). An EMPTY Replace renders a SINGLE row with the match struck through (a "will be deleted"
+-- indicator). The result line's code reads in yellow; the match / replacement spans paint over it.
 --
 ---@module "lvim-replace.ui"
 
@@ -111,11 +113,6 @@ function M.open(opts)
     local S = {
         search = prefills.search or "",
         replace = prefills.replace or "",
-        -- Whether the user has ENGAGED the Replace field (typed in it — even to clear it). An empty Replace is
-        -- a valid replacement (delete the match), so the DIFF preview + the pass-2 replacement run must key off
-        -- this INTENT, not off `replace ~= ""` (which can't tell "delete" from "haven't touched it, just
-        -- searching"). Sticky for the session; true from the start when a Replace prefill was passed.
-        replace_touched = (prefills.replace or "") ~= "",
         paths = prefills.paths or "",
         flags_extra = prefills.flags_extra or "",
         flags = vim.tbl_extend("force", vim.deepcopy(config.flags), opts.flags or {}),
@@ -337,9 +334,6 @@ function M.open(opts)
             or nf.replace ~= S.replace
             or nf.paths ~= S.paths
             or nf.flags_extra ~= S.flags_extra
-        if nf.replace ~= S.replace then
-            S.replace_touched = true -- engaging the Replace field turns the diff preview on (even → empty)
-        end
         S.search, S.replace, S.paths, S.flags_extra = nf.search, nf.replace, nf.paths, nf.flags_extra
         if changed then
             S.schedule_search()
@@ -535,11 +529,12 @@ function M.open(opts)
                 local col1 = (row.spans[1] and row.spans[1].s or 0) + 1
                 local loc = ("%d:%d"):format(row.lnum, col1)
                 local prefix = mk .. " " .. loc .. "  "
-                -- A DIFF once the user has engaged Replace (even to an empty string = delete); until then the
-                -- match is a plain search hit.
-                local diff = S.replace_touched and all_have_after(row.spans)
+                -- The preview is always live (no gate): a Replace VALUE renders the full two-row DIFF, an EMPTY
+                -- Replace renders a SINGLE row with the match struck through (a "will be deleted" indicator).
+                local diff = (S.replace ~= "") and all_have_after(row.spans)
                 -- ── the ORIGINAL (before) row ──────────────────────────────────────
-                local br = push(prefix .. row.text, i)
+                local before = prefix .. row.text
+                local br = push(before, i)
                 hls[#hls + 1] = {
                     br,
                     0,
@@ -551,9 +546,10 @@ function M.open(opts)
                 local lnum_bytes = #tostring(row.lnum)
                 hls[#hls + 1] = { br, locstart, locstart + lnum_bytes, "LvimReplaceLineNr", 150 }
                 hls[#hls + 1] = { br, locstart + lnum_bytes + 1, locstart + #loc, "LvimReplaceColNr", 150 }
-                local mgroup = diff and "LvimReplaceMatchDel" or "LvimReplaceMatch"
+                hls[#hls + 1] = { br, #prefix, #before, "LvimReplaceCode", 150 } -- the code text in yellow
+                -- The match is always struck (red): a Replace value replaces it, an empty Replace deletes it.
                 for _, sp in ipairs(row.spans) do
-                    hls[#hls + 1] = { br, #prefix + sp.s, #prefix + sp.e, mgroup, 160 }
+                    hls[#hls + 1] = { br, #prefix + sp.s, #prefix + sp.e, "LvimReplaceMatchDel", 160 }
                 end
                 if marked then
                     hls[#hls + 1] = { br, 0, #mk, "LvimReplaceMarker", 220 }
@@ -571,9 +567,11 @@ function M.open(opts)
                     local aprefix = string.rep(" ", mkw + 1)
                         .. sign
                         .. string.rep(" ", math.max(0, pw - (mkw + 1) - #sign))
-                    local abr = push(aprefix .. body, i)
+                    local aline = aprefix .. body
+                    local abr = push(aline, i)
                     hls[#hls + 1] = { abr, 0, -1, "LvimReplaceDiffAdd", 100 }
                     hls[#hls + 1] = { abr, mkw + 1, mkw + 1 + #sign, "LvimReplaceDiffAddSign", 160 }
+                    hls[#hls + 1] = { abr, #aprefix, #aline, "LvimReplaceCode", 150 } -- the code text in yellow
                     for _, a in ipairs(adds) do
                         hls[#hls + 1] = { abr, #aprefix + a.c0, #aprefix + a.c1, "LvimReplaceReplace", 170 }
                     end
@@ -875,7 +873,6 @@ function M.open(opts)
     local function load_snapshot(snap)
         S.search, S.replace, S.paths, S.flags_extra = snap.search, snap.replace, snap.paths, snap.flags_extra
         S.flags = snap.flags
-        S.replace_touched = S.replace_touched or (snap.replace or "") ~= ""
         inputs_rewrite() -- the inputs buffer is editable; re-assert its field lines from the snapshot
         refresh_all()
         do_search()
@@ -1039,23 +1036,6 @@ function M.open(opts)
                 group = grp,
                 buffer = pan.buf,
                 callback = sync_fields,
-            })
-            -- Landing the cursor ON the Replace line (row 2) engages "replace mode": the diff preview turns on
-            -- even with an EMPTY value (a delete), so what you'll apply is what you see. Sticky for the session.
-            api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
-                group = grp,
-                buffer = pan.buf,
-                callback = function()
-                    if not S.replace_touched and pan.win and api.nvim_win_is_valid(pan.win) then
-                        if api.nvim_win_get_cursor(pan.win)[1] == 2 then
-                            S.replace_touched = true
-                            if S.pan_results and S.pan_results.refresh then
-                                S.pan_results.refresh()
-                            end
-                            do_search() -- re-run so pass 2 computes the (possibly empty) replacement
-                        end
-                    end
-                end,
             })
             S.augroups = S.augroups or {}
             S.augroups[#S.augroups + 1] = grp

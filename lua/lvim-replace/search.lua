@@ -268,11 +268,11 @@ function M.run(st, on_update, on_done)
 
     local stderr_buf = {}
 
-    --- Pass 2: replacement text. Runs after pass 1 so the file set (for prefix disambiguation) exists. Keyed
-    --- off `st.replace_touched` (the user has ENGAGED Replace), not off a non-empty value — an empty Replace
-    --- is a valid deletion whose result the diff must still preview (`rg --replace=` removes the match).
+    --- Pass 2: replacement text. Runs after pass 1 so the file set (for prefix disambiguation) exists. Only
+    --- when a Replace VALUE is set — an empty Replace needs no replacement text (the UI just strikes the match
+    --- as a deletion indicator), so the second ripgrep pass is skipped.
     local function run_replace()
-        if cancelled or not st.replace_touched or acc.count == 0 then
+        if cancelled or (st.replace or "") == "" or acc.count == 0 then
             stop_throttle()
             return vim.schedule(function()
                 if not cancelled then

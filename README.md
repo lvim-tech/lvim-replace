@@ -21,10 +21,11 @@ identically in the results and in the applied change.
   paints the active row instead.
 - **Live ripgrep search** — streamed off the main thread, debounced as you type; results grouped by file
   with a devicon header, `line:col`, and the matched span highlighted.
-- **Diff preview.** Once you engage the Replace field (even leaving it empty — an empty Replace is a valid
-  delete), each match renders as a two-row **diff**: the original on a faint red wash (matched span red +
-  struck through) and the replacement below it on a faint green wash with a `+` gutter (ripgrep's own
-  replacement, capture groups `$1` expanded). What you see is exactly what apply writes.
+- **Diff preview.** The preview is live from the first Search character. A **Replace value** renders each
+  match as a two-row **diff**: the original on a faint red wash (matched span red + struck through) and the
+  replacement below it on a faint green wash with a `+` gutter (ripgrep's own replacement, capture groups
+  `$1` expanded). An **empty Replace** renders a single row with the match struck through (a "will be
+  deleted" indicator — an empty Replace is a valid delete). What you see is exactly what apply writes.
 - **Selective apply via marking** — mark/unmark the result under the cursor (or a file header to mark all
   its matches), with **mark all / unmark all** and a live `marked / total` counter on the Mark bar. Apply
   writes **only the marked matches** (marking is required — to change everything, mark all first). A
@@ -163,10 +164,10 @@ ripgrep is the single engine for both. A search runs two passes:
 1. `rg --json` — the authoritative matches: file, line, the line text, and every submatch's byte span.
    This drives the results, the match highlight, marking and navigation. Streamed off the main thread
    and parsed incrementally, so a broad search never blocks typing.
-2. `rg --only-matching --column --replace=<replace>` (once the Replace field is engaged — even with an
-   empty value, which deletes the match) — ripgrep's own replacement text per match, zipped onto pass 1's
-   spans by `(file, line, column)`. `rg --json` ignores `--replace`, which is exactly why the replacement
-   needs its own pass. This is what the diff preview shows.
+2. `rg --only-matching --column --replace=<replace>` (only when a Replace VALUE is set) — ripgrep's own
+   replacement text per match, zipped onto pass 1's spans by `(file, line, column)`. `rg --json` ignores
+   `--replace`, which is exactly why the replacement needs its own pass. This drives the two-row diff; an
+   empty Replace needs no second pass (the match is just struck through as a deletion indicator).
 
 Applying splices each marked line's spans with their replacement text (right-to-left so earlier spans keep
 their offsets) and writes only the touched files — never a whole-file `rg --replace`, so only the marked

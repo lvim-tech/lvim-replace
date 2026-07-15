@@ -33,11 +33,13 @@ sector you left. The Inputs sector is a real editable buffer — type straight
 into the four field lines; every other sector hides the cursor and paints the
 active row instead.
 
-Once you engage the Replace field (even leaving it empty — an empty Replace is a
-valid delete), each match renders as a two-row DIFF: the original on a faint red
-wash (matched span struck through) and the replacement below it on a faint green
-wash with a "+" gutter — so the change is previewed exactly as apply will write
-it.
+The preview is live from the first Search character. A Replace VALUE renders each
+match as a two-row DIFF: the original on a faint red wash (matched span struck
+through) and the replacement below it on a faint green wash with a "+" gutter. An
+EMPTY Replace renders a SINGLE row with the match struck through (a "will be
+deleted" indicator — an empty Replace is a valid delete). The result code reads
+in yellow; the match / replacement spans paint over it. What you see is exactly
+as apply will write it.
 
 The distinguishing feature is SELECTIVE APPLY: every result is markable and a
 replace writes ONLY the marked matches (see |lvim-replace-marking|).
@@ -157,11 +159,12 @@ ripgrep runs two passes:
      navigation. Streamed off the main thread and parsed incrementally, so a
      broad search never blocks typing; a result cap stops ripgrep at the
      ceiling.
-  2. `rg --only-matching --column --replace=<replace>` (once the Replace field
-     is engaged — even with an empty value, which deletes the match) — ripgrep's
-     own replacement text per match (capture groups expanded), zipped onto pass
-     1's spans by (file, line, column). `rg --json` ignores `--replace`, which
-     is why the replacement needs its own pass. This drives the diff preview.
+  2. `rg --only-matching --column --replace=<replace>` (only when a Replace
+     VALUE is set) — ripgrep's own replacement text per match (capture groups
+     expanded), zipped onto pass 1's spans by (file, line, column). `rg --json`
+     ignores `--replace`, which is why the replacement needs its own pass. This
+     drives the two-row diff; an empty Replace needs no second pass (the match
+     is just struck through).
 
 Applying splices each marked line's spans with their replacement text
 (right-to-left so earlier spans keep their offsets) and writes only the touched
@@ -214,8 +217,9 @@ the group directly:
   LvimReplaceActiveRow      The focused sector's active row / button bar
   LvimReplaceLineNr         Result line number
   LvimReplaceColNr          Result column number
-  LvimReplaceMatch          Matched span (no replacement)
-  LvimReplaceMatchDel       Matched span being replaced (struck)
+  LvimReplaceCode           Result line code text (yellow)
+  LvimReplaceMatch          Matched span (legacy — now always struck)
+  LvimReplaceMatchDel       Matched span (struck: replaced or deleted)
   LvimReplaceReplace        Replacement span (after)
   LvimReplaceDiffDel/Add    Diff before/after row wash (red/green)
   LvimReplaceDiffDelSign/AddSign  Diff gutter signs

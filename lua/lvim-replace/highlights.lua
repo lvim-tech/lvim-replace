@@ -36,6 +36,9 @@ function M.build(c)
         -- The line:col location prefix, dimmed so the code reads first.
         LvimReplaceLineNr = { fg = c.green },
         LvimReplaceColNr = { fg = c.cyan },
+        -- The result line's CODE text (the source around the match) — yellow; the match / replacement spans
+        -- paint over it.
+        LvimReplaceCode = { fg = c.yellow },
         -- The matched span inside the line (before replacement): warm, struck-through when a replace is set.
         LvimReplaceMatch = { fg = c.orange, bold = true },
         LvimReplaceMatchDel = { fg = c.red, strikethrough = true },
