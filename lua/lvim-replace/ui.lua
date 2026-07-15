@@ -600,9 +600,11 @@ function M.open(opts)
         return idx and S.rows[idx] or nil
     end
 
-    --- Move the results cursor to the FIRST line of the NEXT row (after marking) — skips a diff match's own
-    --- replacement line, landing on the next match/file.
-    local function advance()
+    --- Move the results cursor per MATCH/FILE (not per buffer line): step to the FIRST line of the next/prev
+    --- row, skipping a diff match's own replacement (after) line — so a SINGLE j/k always changes match even
+    --- when a match spans two rows (the two-row diff). Drives j/k and the after-mark advance.
+    ---@param delta integer  +1 down / -1 up
+    local function results_move(delta)
         local pan = S.pan_results
         if not (pan and pan.win and api.nvim_win_is_valid(pan.win)) then
             return
@@ -610,12 +612,36 @@ function M.open(opts)
         local lr = S.line_rows or {}
         local cur = api.nvim_win_get_cursor(pan.win)[1]
         local here = lr[cur]
-        for bl = cur + 1, #lr do
-            if lr[bl] and lr[bl] ~= here then
-                pcall(api.nvim_win_set_cursor, pan.win, { bl, 0 })
-                return
+        if delta > 0 then
+            for bl = cur + 1, #lr do
+                if lr[bl] and lr[bl] ~= here then
+                    pcall(api.nvim_win_set_cursor, pan.win, { bl, 0 })
+                    return
+                end
+            end
+        else
+            -- the previous DISTINCT navigable row, then jump to ITS first line
+            local prev
+            for bl = cur - 1, 1, -1 do
+                if lr[bl] and lr[bl] ~= here then
+                    prev = lr[bl]
+                    break
+                end
+            end
+            if prev then
+                for bl = 1, #lr do
+                    if lr[bl] == prev then
+                        pcall(api.nvim_win_set_cursor, pan.win, { bl, 0 })
+                        return
+                    end
+                end
             end
         end
+    end
+
+    --- Step to the next match/file (after marking).
+    local function advance()
+        results_move(1)
     end
 
     --- Keep the results cursor OFF the non-interactive Mark bar (buffer row 1): if it lands there (initial
@@ -1099,6 +1125,13 @@ function M.open(opts)
         local k = config.keys
         map(k.goto_match, S.goto_match)
         map(k.mark, mark_toggle)
+        -- j/k move per MATCH, not per buffer line — a single press skips a two-row diff's replacement line.
+        map({ "j", "<Down>" }, function()
+            results_move(1)
+        end)
+        map({ "k", "<Up>" }, function()
+            results_move(-1)
+        end)
         -- Keep the cursor off the non-interactive Mark bar (row 1), on entry and on every move.
         local grp = api.nvim_create_augroup("LvimReplaceResultsBar_" .. pan.buf, { clear = true })
         api.nvim_create_autocmd({ "CursorMoved", "WinEnter" }, {
