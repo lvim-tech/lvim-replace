@@ -169,7 +169,12 @@ ripgrep runs two passes:
 Applying splices each marked line's spans with their replacement text
 (right-to-left so earlier spans keep their offsets) and writes only the touched
 files. A file open in a buffer is edited through the buffer (set lines + write)
-so its own undo history stays intact.
+so its own undo history stays intact. A file's line terminator is preserved
+(CRLF stays CRLF).
+
+Limitation: apply operates one line at a time, so a `multiline = true` match
+that SPANS lines previews correctly but cannot be applied (it is reported as
+skipped). Single-line matches — the default — apply normally.
 
 ==============================================================================
 8. HISTORY & NAMED SEARCHES                         *lvim-replace-history*

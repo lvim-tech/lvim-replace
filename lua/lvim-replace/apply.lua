@@ -45,8 +45,18 @@ end
 ---@param path string  absolute path
 ---@return string[] lines, integer? bufnr
 local function read_lines(path)
-    local bufnr = vim.fn.bufnr(path)
-    if bufnr ~= -1 and vim.api.nvim_buf_is_loaded(bufnr) then
+    -- Exact-match the buffer by normalized name: vim.fn.bufnr(path) treats its argument as a PATTERN,
+    -- so a path with [ * , { could miss the real buffer (or match another) — then the loaded buffer's
+    -- unsaved edits are bypassed and the stale buffer's next :w reverts the applied change.
+    local abs = vim.fs.normalize(vim.fn.fnamemodify(path, ":p"))
+    local bufnr = nil
+    for _, b in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.fs.normalize(vim.api.nvim_buf_get_name(b)) == abs then
+            bufnr = b
+            break
+        end
+    end
+    if bufnr and vim.api.nvim_buf_is_loaded(bufnr) then
         return vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), bufnr
     end
     if vim.fn.filereadable(path) == 1 then
@@ -100,10 +110,14 @@ function M.apply(entries, fallback)
             local touched = false
             for _, e in ipairs(by_file[abs]) do
                 local cur = lines[e.lnum]
-                if cur == nil or cur ~= e.text then
+                -- Compare (and splice) CRLF-tolerantly: readfile keeps a CRLF file's trailing \r on
+                -- each line while the stored match text has none. Split off any trailing \r, compare
+                -- the body, then re-append it so writefile preserves the file's line terminator.
+                local body, cr = (cur or ""):match("^(.-)(\r?)$")
+                if cur == nil or body ~= e.text then
                     skipped = skipped + 1 -- the line changed since the search — never corrupt it
                 else
-                    lines[e.lnum] = splice(cur, e.spans, fallback)
+                    lines[e.lnum] = splice(body, e.spans, fallback) .. cr
                     changed = changed + 1
                     touched = true
                 end

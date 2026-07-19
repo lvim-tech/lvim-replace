@@ -50,9 +50,33 @@ local function split_flags(s)
     if not s or s == "" then
         return out
     end
-    -- Honour simple single/double quoting so a flag value with a space (a glob) survives.
-    for tok in s:gmatch("%S+") do
-        out[#out + 1] = tok
+    -- Honour simple single/double quoting so a flag value with a space (a glob) survives as ONE
+    -- token — e.g. `-g 'my dir/*'` → { "-g", "my dir/*" }. A plain %S+ split (what this used to do
+    -- despite the comment) broke such a value into two bogus argv tokens.
+    local i, n = 1, #s
+    while i <= n do
+        if s:sub(i, i):match("%s") then
+            i = i + 1
+        else
+            local tok = {}
+            while i <= n do
+                local ch = s:sub(i, i)
+                if ch:match("%s") then
+                    break
+                elseif ch == "'" or ch == '"' then
+                    i = i + 1
+                    while i <= n and s:sub(i, i) ~= ch do
+                        tok[#tok + 1] = s:sub(i, i)
+                        i = i + 1
+                    end
+                    i = i + 1 -- past the closing quote (or past end for an unterminated quote)
+                else
+                    tok[#tok + 1] = ch
+                    i = i + 1
+                end
+            end
+            out[#out + 1] = table.concat(tok)
+        end
     end
     return out
 end
@@ -146,7 +170,10 @@ local function ingest_match(obj, acc, cap)
     if not path then
         return false
     end
-    local text = (data.lines and data.lines.text or ""):gsub("\n$", "")
+    -- Strip the FULL line terminator, CRLF included: a bare `\n$` gsub left the `\r` of a CRLF file
+    -- on the text, which later became a trailing SPACE (ui flatten) so apply's `cur ~= text` equality
+    -- never held → every match on a CRLF file was skipped as "changed since search".
+    local text = (data.lines and data.lines.text or ""):gsub("\r?\n$", ""):gsub("\r$", "")
     local spans = {}
     for _, sm in ipairs(data.submatches or {}) do
         spans[#spans + 1] = { s = sm.start, e = sm["end"] }
@@ -294,7 +321,9 @@ function M.run(st, on_update, on_done)
             vim.schedule(function()
                 if not cancelled then
                     on_update(acc)
-                    on_done(acc, nil)
+                    -- surface pass-1 stderr on the replace path too (permission-denied subtrees, a bad
+                    -- -g glob that still matched) — it was only reported on the no-replace exit before
+                    on_done(acc, #stderr_buf > 0 and table.concat(stderr_buf) or nil)
                 end
             end)
         end)
@@ -311,8 +340,9 @@ function M.run(st, on_update, on_done)
 
     -- Pass 1: matches (JSON), streamed.
     local reader = line_reader(function(line)
-        if line == "" then
-            return
+        if line == "" or acc.count >= cap then
+            return -- once capped, drop the rest of this (and any already-piped) chunk: the soft cap
+            -- otherwise lets acc.count overshoot max_results by the remainder of the buffered stdout
         end
         local ok, obj = pcall(vim.json.decode, line)
         if ok and type(obj) == "table" then

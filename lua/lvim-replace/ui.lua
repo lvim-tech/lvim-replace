@@ -334,7 +334,13 @@ function M.open(opts)
             or nf.replace ~= S.replace
             or nf.paths ~= S.paths
             or nf.flags_extra ~= S.flags_extra
+        -- The MATCH SET (not a pure Replace edit) changed: drop the marks, they were made against the
+        -- old query and would otherwise pre-mark unrelated matches of the new one on the same path:lnum.
+        local match_set_changed = nf.search ~= S.search or nf.paths ~= S.paths or nf.flags_extra ~= S.flags_extra
         S.search, S.replace, S.paths, S.flags_extra = nf.search, nf.replace, nf.paths, nf.flags_extra
+        if match_set_changed then
+            S.marked = {}
+        end
         if changed then
             S.schedule_search()
         end
@@ -722,24 +728,30 @@ function M.open(opts)
 
     -- ── flag toggles ─────────────────────────────────────────────────────────────
 
+    -- A flag toggle changes the MATCH SET the marks were made against, so drop them (same reason as
+    -- the match_set_changed clear in sync_fields).
     function S.toggle_case()
         local order = { smart = "ignore", ignore = "sensitive", sensitive = "smart" }
         S.flags.case = order[S.flags.case] or "smart"
+        S.marked = {}
         refresh_all()
         do_search()
     end
     function S.toggle_word()
         S.flags.whole_word = not S.flags.whole_word
+        S.marked = {}
         refresh_all()
         do_search()
     end
     function S.toggle_regex()
         S.flags.regex = not S.flags.regex
+        S.marked = {}
         refresh_all()
         do_search()
     end
     function S.toggle_hidden()
         S.flags.hidden = not S.flags.hidden
+        S.marked = {}
         refresh_all()
         do_search()
     end
@@ -851,6 +863,12 @@ function M.open(opts)
     end
 
     local function do_apply()
+        if S.searching then
+            -- Refuse mid-search: pass 2 (capture-group replacements) may still be streaming, so a
+            -- span's `after` is not yet attached and splice would write the raw `$1` template to disk.
+            vim.notify("lvim-replace: search still running — wait for it to finish", vim.log.levels.WARN)
+            return
+        end
         if marked_count() == 0 then
             vim.notify("lvim-replace: nothing marked — mark results (or Mark all) first", vim.log.levels.WARN)
             return

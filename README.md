@@ -124,7 +124,7 @@ require("lvim-replace").setup({
         case = "smart", -- "smart" | "ignore" | "sensitive"
         whole_word = false, -- rg --word-regexp
         regex = false, -- false = literal (--fixed-strings); true = regex
-        multiline = false, -- rg --multiline --multiline-dotall
+        multiline = false, -- rg --multiline --multiline-dotall (matches that SPAN lines preview but are not appliable — apply splices one line)
         hidden = false, -- rg --hidden
         no_ignore = false, -- rg --no-ignore
     },
