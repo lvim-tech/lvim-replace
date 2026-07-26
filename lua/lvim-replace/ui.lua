@@ -927,10 +927,10 @@ function M.open(opts)
         local named = store.named()
         local items = {}
         for _, r in ipairs(named) do
-            items[#items + 1] = { label = ("★ %s  —  %s → %s"):format(r.name, r.search, r.repl or ""), _row = r }
+            items[#items + 1] = { label = ("󰓎 %s  —  %s ➤ %s"):format(r.name, r.search, r.repl or ""), _row = r }
         end
         for _, r in ipairs(rows) do
-            items[#items + 1] = { label = ("%s → %s  (%s)"):format(r.search, r.repl or "", r.files or ""), _row = r }
+            items[#items + 1] = { label = ("%s ➤ %s  (%s)"):format(r.search, r.repl or "", r.files or ""), _row = r }
         end
         if #items == 0 then
             vim.notify("lvim-replace: no saved searches yet", vim.log.levels.INFO)
