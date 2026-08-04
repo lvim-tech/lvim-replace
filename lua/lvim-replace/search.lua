@@ -257,18 +257,22 @@ function M.run(st, on_update, on_done)
     end
 
     -- Throttle progressive re-renders to ~60ms so a fast producer doesn't schedule a render per chunk.
+    -- A nil handle (libuv could not allocate) must not abort the search: the renders simply stay
+    -- un-throttled, and `stop_throttle` already tolerates `throttle` being nil.
     throttle = vim.uv.new_timer()
-    throttle:start(60, 60, function()
-        if cancelled or not dirty then
-            return
-        end
-        dirty = false
-        vim.schedule(function()
-            if not cancelled then
-                on_update(acc)
+    if throttle then
+        throttle:start(60, 60, function()
+            if cancelled or not dirty then
+                return
             end
+            dirty = false
+            vim.schedule(function()
+                if not cancelled then
+                    on_update(acc)
+                end
+            end)
         end)
-    end)
+    end
 
     --- Line-splitting consumer shared by both passes: buffers a partial trailing line across chunks.
     ---@param handler fun(line: string)
