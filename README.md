@@ -45,7 +45,7 @@ identically in the results and in the applied change.
 
 ## Requirements
 
-- Neovim >= 0.10
+- Neovim >= 0.12
 - [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) >= 14 recommended
 - `lvim-utils` and `lvim-ui` (part of the lvim-tech set)
 - `sqlite.lua` — optional, only for history / named searches (search & replace work without it)

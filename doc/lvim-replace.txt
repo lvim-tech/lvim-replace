@@ -47,7 +47,7 @@ replace writes ONLY the marked matches (see |lvim-replace-marking|).
 ==============================================================================
 2. REQUIREMENTS                                *lvim-replace-requirements*
 
-  - Neovim >= 0.10
+  - Neovim >= 0.12
   - ripgrep (rg) >= 14 recommended
   - lvim-utils and lvim-ui
   - sqlite.lua (optional) — only for history / named searches; search and
