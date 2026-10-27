@@ -60,7 +60,13 @@ local function read_lines(path)
         return vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), bufnr
     end
     if vim.fn.filereadable(path) == 1 then
-        return vim.fn.readfile(path), nil
+        -- BINARY mode, so the file's own bytes survive a replacement. Plain `readfile()` removes the
+        -- CR before every NL (measured: a CRLF file reads back as bare lines), and plain `writefile()`
+        -- then writes LF endings and appends a final newline where there was none -- so changing one
+        -- word in a CRLF file silently rewrote every line ending in it. In binary mode the pair
+        -- round-trips exactly: a trailing "" element stands for the final newline and is written back
+        -- as one, and a file that had none keeps having none.
+        return vim.fn.readfile(path, "b"), nil
     end
     return {}, nil
 end
@@ -76,7 +82,9 @@ local function write_lines(path, bufnr, lines)
             vim.cmd("silent! keepjumps write")
         end)
     else
-        vim.fn.writefile(lines, path)
+        -- "b" to match read_lines: the lines carry their own CR, and the final-newline element is
+        -- written back as the file had it.
+        vim.fn.writefile(lines, path, "b")
     end
 end
 
@@ -110,7 +118,7 @@ function M.apply(entries, fallback)
             local touched = false
             for _, e in ipairs(by_file[abs]) do
                 local cur = lines[e.lnum]
-                -- Compare (and splice) CRLF-tolerantly: readfile keeps a CRLF file's trailing \r on
+                -- Compare (and splice) CRLF-tolerantly: read in binary mode, a CRLF file's lines carry a \r
                 -- each line while the stored match text has none. Split off any trailing \r, compare
                 -- the body, then re-append it so writefile preserves the file's line terminator.
                 local body, cr = (cur or ""):match("^(.-)(\r?)$")
